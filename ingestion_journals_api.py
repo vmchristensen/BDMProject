@@ -175,7 +175,7 @@ def save_to_s3(data, filename, content_type="application/json"):
 
 if __name__ == "__main__":
     keyword = "psychology"
-    logging.info(f"🔍 Searching for articles on: {keyword}")
+    logging.info(f"Searching for articles on: {keyword}")
     
     articles = fetch_pmc_articles(keyword)
 
@@ -213,6 +213,6 @@ if __name__ == "__main__":
         save_to_s3(paper_df, "mental_health_papers.csv", "text/csv")
 
         # Print disorder mentions
-        logging.info("\n🔹 Most Common Mental Health Disorders Mentioned:")
+        logging.info("\n Most Common Mental Health Disorders Mentioned:")
         for disorder, count in disorder_counts.most_common(10):
             logging.info(f"{disorder}: {count} occurrences")
