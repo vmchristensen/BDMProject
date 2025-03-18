@@ -38,10 +38,10 @@ def fetch_pmc_articles(keyword, max_results=5):
     pmc_ids = search_response.get("esearchresult", {}).get("idlist", [])
 
     if not pmc_ids:
-        logging.warning("❌ No articles found for the given keyword.")
+        logging.warning("No articles found for the given keyword.")
         return []
 
-    logging.info(f"✅ Found {len(pmc_ids)} articles for keyword: {keyword}")
+    logging.info(f"Found {len(pmc_ids)} articles for keyword: {keyword}")
     
     article_links = []
     for pmc_id in pmc_ids:
@@ -66,7 +66,7 @@ def download_ftp_file(ftp_url):
     ftp_server = "ftp.ncbi.nlm.nih.gov"
     file_path = ftp_url.replace("ftp://ftp.ncbi.nlm.nih.gov/", "")
 
-    logging.info(f"📥 Connecting to FTP: {ftp_server}, File: {file_path}")
+    logging.info(f"Connecting to FTP: {ftp_server}, File: {file_path}")
 
     try:
         ftp = FTP(ftp_server)
@@ -76,7 +76,7 @@ def download_ftp_file(ftp_url):
         # Check if the file exists
         file_list = ftp.nlst(os.path.dirname(file_path))  # List files in the directory
         if file_path not in file_list:
-            logging.warning(f"❌ File not found: {file_path}")
+            logging.warning(f"File not found: {file_path}")
             ftp.quit()
             return None
 
@@ -86,11 +86,11 @@ def download_ftp_file(ftp_url):
         ftp.quit()
         
         file_bytes.seek(0)  # Reset pointer for reading
-        logging.info(f"✅ Successfully downloaded {file_path}")
+        logging.info(f"Successfully downloaded {file_path}")
         return file_bytes
 
     except Exception as e:
-        logging.error(f"❌ FTP download failed: {e}")
+        logging.error(f"FTP download failed: {e}")
         return None
 
 
@@ -103,7 +103,7 @@ def extract_nxml_from_tar(tar_bytes):
             if member.name.endswith(".nxml"):
                 extracted_file = tar.extractfile(member)
                 if extracted_file:
-                    logging.info(f"✅ Extracted .nxml file: {member.name}")
+                    logging.info(f"Extracted .nxml file: {member.name}")
                     return extracted_file.read().decode("utf-8")
     return None
 
@@ -127,7 +127,7 @@ def parse_nxml(nxml_content):
             "Body": str(body)  # Convert XML tree to string
         }
     except Exception as e:
-        logging.error(f"❌ Error parsing NXML file: {e}")
+        logging.error(f"Error parsing NXML file: {e}")
         return None
 
 def extract_disorder_mentions(text):
@@ -170,7 +170,7 @@ def save_to_s3(data, filename, content_type="application/json"):
         Body=file_content,
         ContentType=content_type
     )
-    print(f"✅ Uploaded to S3: s3://{S3_BUCKET_NAME}/{s3_key}")
+    print(f"Uploaded to S3: s3://{S3_BUCKET_NAME}/{s3_key}")
 
 
 if __name__ == "__main__":
@@ -180,7 +180,7 @@ if __name__ == "__main__":
     articles = fetch_pmc_articles(keyword)
 
     if not articles:
-        logging.warning("❌ No articles found.")
+        logging.warning("No articles found.")
     else:
         disorder_counts = Counter()
         paper_data = []
