@@ -28,9 +28,9 @@ def upload_to_s3(file_url, file_name):
         s3_key = f"{S3_FOLDER}{file_name}"
 
         s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=s3_key, Body=file_data.getvalue(), ContentType="application/gzip")
-        print(f"✅ Uploaded: s3://{S3_BUCKET_NAME}/{s3_key}")
+        print(f"Uploaded: s3://{S3_BUCKET_NAME}/{s3_key}")
     else:
-        print(f"❌ Failed to download: {file_url}")
+        print(f"Failed to download: {file_url}")
 
 # Fetch dataset file list
 response = requests.get(api_url)
@@ -51,4 +51,4 @@ if response.status_code == 200:
         upload_to_s3(file_url, file_name)
 
 else:
-    print("❌ Failed to fetch file list from GitHub.")
+    print("Failed to fetch file list from GitHub.")
