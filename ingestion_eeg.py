@@ -26,10 +26,10 @@ def fetch_eeg_file_list():
     if response.status_code == 200:
         files = response.json()["tree"]
         eeg_files = [file["path"] for file in files if file["path"].endswith(".edf")]
-        print(f"✅ Found {len(eeg_files)} EEG (.edf) files.")
+        print(f"Found {len(eeg_files)} EEG (.edf) files.")
         return eeg_files
     else:
-        print(f"❌ Failed to fetch EEG file list. Status Code: {response.status_code}")
+        print(f"Failed to fetch EEG file list. Status Code: {response.status_code}")
         return []
 
 def upload_to_s3(file_url, file_name):
@@ -48,9 +48,9 @@ def upload_to_s3(file_url, file_name):
             Body=file_data.getvalue(),
             ContentType="application/octet-stream"
         )
-        print(f"✅ Uploaded: s3://{S3_BUCKET_NAME}/{s3_key}")
+        print(f"Uploaded: s3://{S3_BUCKET_NAME}/{s3_key}")
     else:
-        print(f"❌ Failed to download: {file_url}")
+        print(f"Failed to download: {file_url}")
 
 # Fetch list of EEG files
 eeg_files = fetch_eeg_file_list()
@@ -64,4 +64,4 @@ if eeg_files:
         file_name = file_path.split("/")[-1]  # Extract filename
         upload_to_s3(file_url, file_name)
 else:
-    print("❌ No EEG files found to upload.")
+    print("No EEG files found to upload.")
