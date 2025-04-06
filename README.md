@@ -32,6 +32,12 @@ Create Kafka topic:
 kafka-topics.sh --create --topic reddit-stream --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
 exit
 ```
+
+Confirm it exists:
+```bash
+kafka-topics.sh --list --bootstrap-server localhost:9092
+```
+
 Run the Reddit streaming ingestion script:
 ```bash
 python ingestion_streaming_reddit.py
