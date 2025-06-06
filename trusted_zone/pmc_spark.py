@@ -77,7 +77,7 @@ def main():
     output_path = "s3a://bdm.trusted.zone/clean_data/json/pmc/spark/"
     print(f"Writing cleaned data to: {output_path}")
     pmc_clean.write.mode("overwrite").json(output_path + "json/")
-    pmc_clean.write.mode("overwrite").parquet(output_path + "parquet/")
+    # pmc_clean.write.mode("overwrite").parquet(output_path + "parquet/")
 
     print("Transformation completed.")
     spark.stop()
