@@ -1,0 +1,174 @@
+import streamlit as st
+import pandas as pd
+import boto3
+import os
+import io
+import json
+from collections import Counter
+from urllib.parse import unquote
+import plotly.express as px
+
+# === S3 Config ===
+BUCKET = "bdm.exploitation.zone"
+CSV_PREFIX = "by_disease/csv/"
+JSON_PREFIX = "by_disease/json/"
+
+DISORDER_CANONICAL_NAMES = {
+    "bipolar disorder": ["bipolardisorder", "bipolar disorder", "bipolar%2520disorder"],
+    "depression": ["depressivedisorders", "depression"],
+    "anxiety": ["anxietydisorders", "anxiety", "panic disorder", "phobia", "ptsd"],
+    "schizophrenia": ["schizophrenia"],
+    "eating disorder": ["eatingdisorders", "eating disorder", "eating%2520disorder"],
+    "substance abuse": ["alcoholusedisorders", "drugusedisorders", "addiction", "substance abuse"],
+    "ocd": ["ocd"],
+    "autism": ["autism"],
+    "insomnia": ["insomnia"],
+    "adhd": ["adhd"],
+    "suicide": ["suicide", "self-harm"],
+    "psychosis": ["psychosis"],
+    "mental health": ["mental health"]
+}
+
+# --- Helper Functions ---------
+
+def list_disorders(prefix):
+    s3 = boto3.client("s3",
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
+    )
+    result = s3.list_objects_v2(Bucket=BUCKET, Prefix=prefix)
+    disorders = set()
+    for obj in result.get("Contents", []):
+        parts = obj["Key"].split("/")
+        for part in parts:
+            if part.startswith("disorder="):
+                val = part.split("=", 1)[1]
+                if "__HIVE_DEFAULT_PARTITION__" not in val:
+                    disorders.add(unquote(val))
+    return list(disorders)
+
+def normalize_disorders(disorder_list):
+    normalized = set()
+    for canon, variants in DISORDER_CANONICAL_NAMES.items():
+        for d in disorder_list:
+            if d.lower() in [v.lower() for v in variants]:
+                normalized.add(canon)
+    return sorted(normalized)
+
+def get_raw_disorder_names(canonical_disorder):
+    return DISORDER_CANONICAL_NAMES.get(canonical_disorder, [])
+
+def load_csv_data(disorder_raw_names):
+    s3 = boto3.client("s3",
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
+    )
+    dfs = []
+    for raw in disorder_raw_names:
+        prefix = f"{CSV_PREFIX}disorder={raw}/"
+        result = s3.list_objects_v2(Bucket=BUCKET, Prefix=prefix)
+        for obj in result.get("Contents", []):
+            key = obj["Key"]
+            if key.endswith(".csv"):
+                response = s3.get_object(Bucket=BUCKET, Key=key)
+                df = pd.read_csv(response['Body'])
+                dfs.append(df)
+    return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+
+def load_json_data(disorder_raw_names):
+    s3 = boto3.client("s3",
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
+    )
+
+    articles = []
+
+    for raw in disorder_raw_names:
+        prefix = f"{JSON_PREFIX}disorder={raw}/"
+        result = s3.list_objects_v2(Bucket=BUCKET, Prefix=prefix)
+
+        if "Contents" not in result:
+            continue
+
+        for obj in result["Contents"]:
+            key = obj["Key"]
+            if not key.endswith(".json"):
+                continue
+
+            response = s3.get_object(Bucket=BUCKET, Key=key)
+            content = response["Body"].read().decode("utf-8")
+
+            for line in content.strip().split("\n"):
+                try:
+                    article = json.loads(line)
+                    articles.append(article)
+                except json.JSONDecodeError:
+                    continue
+
+    return articles
+
+# --- Streamlit App ---
+st.set_page_config(page_title="Mental Health Dashboard", layout="wide")
+st.title("🧠 Mental Health Dashboard: Trends & Literature")
+
+# Fetch disorders from both folders
+csv_disorders_raw = list_disorders(CSV_PREFIX)
+json_disorders_raw = list_disorders(JSON_PREFIX)
+all_disorders = normalize_disorders(csv_disorders_raw + json_disorders_raw)
+
+selected_disorder = st.selectbox("Select a Disorder", all_disorders)
+
+if selected_disorder:
+    raw_names = get_raw_disorder_names(selected_disorder)
+
+    # Real-World Data
+    csv_df = load_csv_data(raw_names)
+    if not csv_df.empty:
+        countries = sorted(csv_df["Entity"].unique().tolist())
+        selected_country = st.selectbox("Select a Country", countries, index=0)
+
+        filtered_df = csv_df[csv_df["Entity"] == selected_country]
+
+        fig = px.line(
+            filtered_df,
+            x="Year",
+            y="percentage",
+            color="Entity",
+            markers=True,
+            title=f"{selected_disorder.title()} in {selected_country} Over Time",
+            labels={"PercentageAffected": "% of Population"}
+        )
+        st.plotly_chart(fig, use_container_width=True)
+       
+    else:
+        st.info("No real-world statistics available for this disorder.")
+
+    # Literature Data
+    json_articles = load_json_data(raw_names)
+    years = [article.get("year") for article in json_articles if "year" in article and article["year"] is not None]
+    if json_articles:
+        st.subheader("📚 Article Mentions")
+        st.write(f"Found {len(json_articles)} articles mentioning *{selected_disorder}*.")
+        st.write("### Latest Articles:")
+
+        for article in json_articles[:5]:  # Show only the latest 5 articles
+            title = article.get("title", "No Title").title()
+            year = article.get("year", "n.d.")  # n.d. = no date
+
+            st.markdown(f"- **{title}**  \t ({year})")
+
+        # Create and display a bar chart of article counts per year
+        df_years = pd.DataFrame(years, columns=["year"])
+        year_counts = df_years.value_counts().reset_index(name="count").sort_values(by="year")
+        year_counts.columns = ["year", "count"]
+
+        fig = px.bar(year_counts, x="year", y="count", title="Number of Articles per Year")
+        st.plotly_chart(fig)
+    else:
+        st.info("No article data available for this disorder.")
+
+
+
+
+
+    
