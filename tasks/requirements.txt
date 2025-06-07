@@ -1,4 +1,7 @@
+praw
+kafka-python
+boto3
+redis
 streamlit
 pandas
-boto3
 plotly

@@ -1,3 +1,8 @@
+# app.py
+
+# =========================================================
+# START OF YOUR ORIGINAL FILE (UNCHANGED)
+# =========================================================
 import streamlit as st
 import pandas as pd
 import boto3
@@ -8,6 +13,38 @@ from collections import Counter
 from urllib.parse import unquote
 import plotly.express as px
 
+# === NEW CODE BLOCK 1: ADDED IMPORTS ===
+# These are needed for the new live-data functionality.
+import redis
+import time
+# =======================================
+
+# === NEW CODE BLOCK 2: ADDED HOT PATH CONFIG & FUNCTION ===
+# This entire block is new. It is responsible for the live Reddit data
+# and does not interfere with your S3 functions.
+# When running inside Docker, we connect to the 'redis' service name.
+REDIS_HOST = os.getenv('REDIS_HOST', 'redis') 
+
+try:
+    redis_client = redis.Redis(host=REDIS_HOST, port=6379, db=0, decode_responses=True)
+    redis_client.ping()
+    REDIS_AVAILABLE = True
+except redis.exceptions.ConnectionError:
+    REDIS_AVAILABLE = False
+
+# This function only gets data for the hot path.
+@st.cache_data(ttl=5)
+def get_live_reddit_counts():
+    if not REDIS_AVAILABLE:
+        return {}
+    counts = redis_client.hgetall('disorder_counts')
+    return {disorder: int(count) for disorder, count in counts.items()}
+# ========================================================
+
+
+# =========================================================
+# YOUR ORIGINAL CODE (UNCHANGED)
+# =========================================================
 # === S3 Config ===
 BUCKET = "bdm.exploitation.zone"
 CSV_PREFIX = "by_disease/csv/"
@@ -30,7 +67,7 @@ DISORDER_CANONICAL_NAMES = {
 }
 
 # --- Helper Functions ---------
-
+# All your S3 data loading functions are completely unchanged.
 def list_disorders(prefix):
     s3 = boto3.client("s3",
         aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
@@ -111,6 +148,24 @@ def load_json_data(disorder_raw_names):
 st.set_page_config(page_title="Mental Health Dashboard", layout="wide")
 st.title("🧠 Mental Health Dashboard: Trends & Literature")
 
+
+# === NEW CODE BLOCK 3: LIVE MONITOR UI ===
+# This is added before your original UI logic to display the live chart at the top.
+# It uses a placeholder so it can be updated without affecting the rest of the page.
+st.header("Live Reddit Discussion Monitor")
+
+if not REDIS_AVAILABLE:
+    st.error("🔴 Live monitor is offline: Could not connect to the real-time data store.")
+else:
+    live_data_placeholder = st.empty()
+
+st.markdown("---") # Visual separator
+# =======================================================
+
+
+# =========================================================
+# YOUR ORIGINAL UI CODE (UNCHANGED)
+# =========================================================
 # Fetch disorders from both folders
 csv_disorders_raw = list_disorders(CSV_PREFIX)
 json_disorders_raw = list_disorders(JSON_PREFIX)
@@ -138,7 +193,7 @@ if selected_disorder:
             title=f"{selected_disorder.title()} in {selected_country} Over Time",
             labels={"PercentageAffected": "% of Population"}
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key="historical_country_chart")
        
     else:
         st.info("No real-world statistics available for this disorder.")
@@ -163,12 +218,31 @@ if selected_disorder:
         year_counts.columns = ["year", "count"]
 
         fig = px.bar(year_counts, x="year", y="count", title="Number of Articles per Year")
-        st.plotly_chart(fig)
+        st.plotly_chart(fig, key="historical_literature_chart")
     else:
         st.info("No article data available for this disorder.")
 
 
-
-
-
-    
+# === NEW CODE BLOCK 4: THE LIVE REFRESH LOOP ===
+# This is added to the very end of the script. It powers the live monitor
+# without affecting the historical section above.
+if REDIS_AVAILABLE:
+    while True:
+        live_counts = get_live_reddit_counts()
+        with live_data_placeholder.container():
+            if not live_counts:
+                st.info("Listening to the Reddit stream... Waiting for the first mentions.")
+            else:
+                df_live = pd.DataFrame(list(live_counts.items()), columns=['Disorder', 'Count'])
+                df_live = df_live.sort_values('Count', ascending=False)
+                
+                fig_live = px.bar(
+                    df_live,
+                    x='Disorder',
+                    y='Count',
+                    title="Current Mention Counts",
+                    color='Disorder'
+                )
+                st.plotly_chart(fig_live, use_container_width=True, key="live_chart")
+        time.sleep(5) # The refresh interval
+# =======================================================
