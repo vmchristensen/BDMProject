@@ -62,12 +62,12 @@ To run the dashboard on your local machine, follow these steps:
 5. **Run the Dashboard Container**
 
    ```bash
-   docker run -p 8501:8501 --env .env mental-health-dashboard
+   docker run -p 8501:8501 --env-file .env mental-health-dashboard
    ```
 
    - If the connection is not working, try changing the port (`8501`) to `8502`, for example:
      ```bash
-     docker run -p 8502:8501 --env .env mental-health-dashboard
+     docker run -p 8502:8501 --env-file .env mental-health-dashboard
      ```
 
 ## Additional Notes
