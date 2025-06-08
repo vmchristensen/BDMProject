@@ -1,81 +1,77 @@
-# BDM Project 1: Mental Health Data Ingestion Pipeline
+# BDMProject
 
 ## Overview
 
-This project automates the ingestion of mental health-related data from multiple sources, including structured surveys, semi-structured Reddit posts, and unstructured neuroimaging data. It leverages AWS S3 for storage and Kafka for real-time streaming.
+BDMProject is focused on mental health in the context of big data management. The project implements data workflows through the landing, trusted, and exploitation zones, and provides a dashboard to facilitate exploitation tasks and visualization.
 
-## How to Run
+## Project Structure
 
-### 1. Set up Environment
+- **Landing Zone:** Initial ingestion of raw data.
+- **Trusted Zone:** Processed and validated data.
+- **Exploitation Zone:** Data ready for analysis and dashboarding.
+- **Dashboard:** Visualization tool for exploitation tasks.
 
-Install dependencies:
+## Repository File Structure
 
-```bash
-pip install boto3 requests praw kafka-python
+The following is a partial list of files and directories in this repository:
+```
+exploitation zone/ # with the individual files for the transformations from the trusted to the exploitation zone
+
+hot_path/ # with the files for the streaming
+
+landing zone/ # with the individual files for the ingestion (see part 1 of the project)
+
+orchestration/ # with the files needed for orchestration
+
+tasks/ # with the files for the dashboard display
+
+trusted_zone/ # with the files needed for the transformations from the landing to the trusted zone
+
 ```
 
+## Running the Dashboard
 
-Set AWS credentials for boto3.
+To run the dashboard on your local machine, follow these steps:
 
+1. **Clone the Repository**
 
-### 2. Launch Reddit Streaming Pipeline
+   ```bash
+   git clone https://github.com/vmchristensen/BDMProject.git
+   cd BDMProject/tasks
+   ```
 
-Start Kafka and Docker:
+2. **Prepare the Environment**
 
-```bash
-docker-compose up -d
-docker exec -it kafka bash
-```
-Create Kafka topic:
+   - Ensure the `.env` file (attached in the `learnsql2` task) is present in the same folder as the dashboard code.
+   - The `.env` file should contain all necessary environment variables for the dashboard.
 
-```bash
-kafka-topics.sh --create --topic reddit-stream --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
-exit
-```
+3. **Start Docker Services**
 
-Confirm it exists:
-```bash
-kafka-topics.sh --list --bootstrap-server localhost:9092
-```
+   Open a terminal in the command prompt and run:
 
-Run the Reddit streaming ingestion script:
-```bash
-python ingestion_streaming_reddit.py
-```
+   ```bash
+   docker-compose up -d
+   ```
 
+4. **Build the Dashboard Image**
 
-### 3. Run Batch Ingestion Scripts
+   ```bash
+   docker build -t mental-health-dashboard .
+   ```
 
-You can run the ingestion scripts either individually or by using the main script that triggers a schedule for specific tasks.
+5. **Run the Dashboard Container**
 
-#### Option 1: Run Individual Scripts
+   ```bash
+   docker run -p 8501:8501 --env .env mental-health-dashboard
+   ```
 
-Run the following scripts directly to ingest data from each source:
+   - If the connection is not working, try changing the port (`8501`) to `8502`, for example:
+     ```bash
+     docker run -p 8502:8501 --env .env mental-health-dashboard
+     ```
 
-```bash
-python ingest_semantic_scholar.py
-python ingest_pmc.py
-python ingest_neuro_data.py
-python ingest_mental_health.py
-python ingest_unemployment_and_suicides.py
-```
+## Additional Notes
 
-#### Option 2: Run Main Script
-
-Alternatively, you can use the main script main.py, which triggers the batch ingestion for a scheduled set of scripts, specifically:
-```bash
-python main.py
-This will automatically execute the batch ingestion for the following data sources:
-ingest_semantic_scholar.py
-ingest_pmc.py
-ingest_neuro_data.py
-```
-
-
-#### Supporting Functions
-
-Please note that the ingestion and main scripts depend on additional utility scripts containing necessary functions. These scripts are the following:
-```bash
-ingest_data.py
-automatic_schedule.py
-```
+- Make sure Docker is installed and running on your machine.
+- The dashboard will be accessible via [http://localhost:8501](http://localhost:8501) (or whichever port you selected).
+- If needed contact with us.
