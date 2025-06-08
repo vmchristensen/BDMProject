@@ -69,8 +69,8 @@ def main():
         )
 
     # 3. Load and join metadata
-    metadata_path = "s3a://bdm.project.input/data/eeg/*/dataset_metadata.json"
-    metadata_df = spark.read.json(metadata_path) \
+    metadata_path = "s3a://bdm.project.input/data/eeg/*/*_metadata.json"
+    metadata_df = spark.read.option("multiLine", True).json(metadata_path) \
         .withColumnRenamed("id", "dataset_id") \
         .withColumnRenamed("date", "metadata_date") \
         .withColumn("modality", col("modalities")[0]) \
@@ -83,7 +83,7 @@ def main():
     ).drop("dataset_id")
 
     # 4. Save
-    output_path = "s3a://bdm.project.trusted/clean_data/eeg/full/"
+    output_path = "s3a://bdm.trusted.zone/clean_data/eeg/full/"
     enriched.write.mode("overwrite").parquet(output_path)
 
     print("EEG processing completed.")
