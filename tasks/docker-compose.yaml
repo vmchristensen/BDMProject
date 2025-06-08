@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: bitnami/zookeeper:3.8
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+
+  kafka:
+    image: bitnami/kafka:3.4.0
+    environment:
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_CFG_LISTENERS=INTERNAL://:9093,EXTERNAL://:9092
+      - KAFKA_CFG_ADVERTISED_LISTENERS=INTERNAL://kafka:9093,EXTERNAL://localhost:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_INTER_BROKER_LISTENER_NAME=INTERNAL
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_ENABLE_KRAFT=no
+    depends_on:
+      - zookeeper
+
+  redis:
+    image: redis:7-alpine
+
+  ingest_service:
+    build: .
+    command: python ingest_streaming_reddit.py
+    env_file:
+      - .env
+    depends_on:
+      - kafka
+
+  hot_path_processor_service:
+    build: .
+    command: python hot_path_processor.py
+    depends_on:
+      - kafka
+      - redis
+
+  streamlit_app:
+    build: .
+    # This service will use the default CMD from the Dockerfile
+    ports:
+      - "8501:8501" # Map the container's port 8501 to your computer's port 8501
+    env_file:
+      - .env # Pass credentials so it can access S3
+    depends_on:
+      - redis
+      - ingest_service # Wait for ingest to start before the dashboard is fully accessible

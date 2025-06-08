@@ -1,8 +1,5 @@
 # app.py
 
-# =========================================================
-# START OF YOUR ORIGINAL FILE (UNCHANGED)
-# =========================================================
 import streamlit as st
 import pandas as pd
 import boto3
@@ -12,17 +9,10 @@ import json
 from collections import Counter
 from urllib.parse import unquote
 import plotly.express as px
-
-# === NEW CODE BLOCK 1: ADDED IMPORTS ===
-# These are needed for the new live-data functionality.
 import redis
 import time
-# =======================================
 
-# === NEW CODE BLOCK 2: ADDED HOT PATH CONFIG & FUNCTION ===
-# This entire block is new. It is responsible for the live Reddit data
-# and does not interfere with your S3 functions.
-# When running inside Docker, we connect to the 'redis' service name.
+# === ADDED HOT PATH CONFIG & FUNCTION ===
 REDIS_HOST = os.getenv('REDIS_HOST', 'redis') 
 
 try:
@@ -41,14 +31,12 @@ def get_live_reddit_counts():
     return {disorder: int(count) for disorder, count in counts.items()}
 # ========================================================
 
-
-# =========================================================
-# YOUR ORIGINAL CODE (UNCHANGED)
 # =========================================================
 # === S3 Config ===
 BUCKET = "bdm.exploitation.zone"
 CSV_PREFIX = "by_disease/csv/"
 JSON_PREFIX = "by_disease/json/"
+NII_PREFIX = "by_disease/nii/json/"
 
 DISORDER_CANONICAL_NAMES = {
     "bipolar disorder": ["bipolardisorder", "bipolar disorder", "bipolar%2520disorder"],
@@ -63,7 +51,8 @@ DISORDER_CANONICAL_NAMES = {
     "adhd": ["adhd"],
     "suicide": ["suicide", "self-harm"],
     "psychosis": ["psychosis"],
-    "mental health": ["mental health"]
+    "mental health": ["mental health"],
+    "parkinson":["parkinson"]
 }
 
 # --- Helper Functions ---------
@@ -83,6 +72,37 @@ def list_disorders(prefix):
                 if "__HIVE_DEFAULT_PARTITION__" not in val:
                     disorders.add(unquote(val))
     return list(disorders)
+
+def list_nii_disorders(prefix):
+    s3 = boto3.client("s3",
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
+    )
+
+    disorders = set()
+    result = s3.list_objects_v2(Bucket=BUCKET, Prefix=prefix)
+
+    if "Contents" not in result:
+        return list(disorders)
+
+    for obj in result["Contents"]:
+        key = obj["Key"]
+        if not key.endswith(".json"):
+            continue
+
+        response = s3.get_object(Bucket=BUCKET, Key=key)
+        content = response["Body"].read().decode("utf-8")
+
+        try:
+            for line in content.strip().split("\n"):
+                record = json.loads(line)
+                if "disorder" in record:
+                    disorders.add(record["disorder"].lower())
+        except json.JSONDecodeError:
+            continue
+
+    return list(disorders)
+
 
 def normalize_disorders(disorder_list):
     normalized = set()
@@ -144,9 +164,42 @@ def load_json_data(disorder_raw_names):
 
     return articles
 
+def load_nii_metadata(disorder_raw_names):
+    s3 = boto3.client("s3",
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
+    )
+
+    datasets = []
+
+    for raw in disorder_raw_names:
+        prefix = f"{NII_PREFIX}disorder={raw}/"
+        result = s3.list_objects_v2(Bucket=BUCKET, Prefix=prefix)
+
+        if "Contents" not in result:
+            continue
+
+        for obj in result["Contents"]:
+            key = obj["Key"]
+            if not key.endswith(".json"):
+                continue
+
+            response = s3.get_object(Bucket=BUCKET, Key=key)
+            content = response["Body"].read().decode("utf-8")
+
+            try:
+                for line in content.strip().split("\n"):
+                    record = json.loads(line)
+                    datasets.append(record)
+            except json.JSONDecodeError:
+                continue
+
+    return datasets
+
+
 # --- Streamlit App ---
 st.set_page_config(page_title="Mental Health Dashboard", layout="wide")
-st.title("🧠 Mental Health Dashboard: Trends & Literature")
+st.title("Mental Health Dashboard: Trends & Literature")
 
 
 # === NEW CODE BLOCK 3: LIVE MONITOR UI ===
@@ -164,12 +217,15 @@ st.markdown("---") # Visual separator
 
 
 # =========================================================
-# YOUR ORIGINAL UI CODE (UNCHANGED)
+# ORIGINAL UI CODE
 # =========================================================
 # Fetch disorders from both folders
 csv_disorders_raw = list_disorders(CSV_PREFIX)
 json_disorders_raw = list_disorders(JSON_PREFIX)
-all_disorders = normalize_disorders(csv_disorders_raw + json_disorders_raw)
+nii_disorders_raw = list_nii_disorders(NII_PREFIX)
+
+# Combine all disorders and normalize
+all_disorders = normalize_disorders(csv_disorders_raw + json_disorders_raw + nii_disorders_raw)
 
 selected_disorder = st.selectbox("Select a Disorder", all_disorders)
 
@@ -179,6 +235,7 @@ if selected_disorder:
     # Real-World Data
     csv_df = load_csv_data(raw_names)
     if not csv_df.empty:
+        st.subheader("🧠 Real World Statistics")
         countries = sorted(csv_df["Entity"].unique().tolist())
         selected_country = st.selectbox("Select a Country", countries, index=0)
 
@@ -221,6 +278,36 @@ if selected_disorder:
         st.plotly_chart(fig, key="historical_literature_chart")
     else:
         st.info("No article data available for this disorder.")
+    
+    # NIfTI Dataset Metadata Section
+    nii_datasets = load_nii_metadata(raw_names)
+
+    if nii_datasets:
+        st.subheader("📦 Dataset Metadata")
+        st.write(f"Found **{len(nii_datasets)} datasets** tagged with *{selected_disorder}*.")
+
+        with st.container():
+            st.image("https://upload.wikimedia.org/wikipedia/commons/5/58/Head_mri_animation.gif", 
+                    caption="Example MRI Image", use_container_width=True)        
+
+        # Display metadata in a table
+        metadata_df = pd.DataFrame([
+            {
+                "Dataset ID": ds.get("dataset_id"),
+                "Name": ds.get("name"),
+                "Species": ds.get("species"),
+                "Modality": ", ".join(ds.get("modalities", [])),
+                "Study Design": ds.get("studyDesign"),
+                "Study Domain": ds.get("studyDomain"),
+                "Date": ds.get("date", "")[:10]  # Just show the YYYY-MM-DD part
+            }
+            for ds in nii_datasets
+        ])
+
+        st.dataframe(metadata_df, use_container_width=True)
+    else:
+        st.info("No NIfTI dataset metadata available for this disorder.")
+
 
 
 # === NEW CODE BLOCK 4: THE LIVE REFRESH LOOP ===
