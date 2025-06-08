@@ -37,6 +37,7 @@ BUCKET = "bdm.exploitation.zone"
 CSV_PREFIX = "by_disease/csv/"
 JSON_PREFIX = "by_disease/json/"
 NII_PREFIX = "by_disease/nii/json/"
+EEG_PREFIX = "by_disease/eeg/json/"
 
 DISORDER_CANONICAL_NAMES = {
     "bipolar disorder": ["bipolardisorder", "bipolar disorder", "bipolar%2520disorder"],
@@ -52,7 +53,8 @@ DISORDER_CANONICAL_NAMES = {
     "suicide": ["suicide", "self-harm"],
     "psychosis": ["psychosis"],
     "mental health": ["mental health"],
-    "parkinson":["parkinson"]
+    "parkinson":["parkinson"],
+    "alzheimer": ["alzheimer"]
 }
 
 # --- Helper Functions ---------
@@ -73,35 +75,29 @@ def list_disorders(prefix):
                     disorders.add(unquote(val))
     return list(disorders)
 
-def list_nii_disorders(prefix):
-    s3 = boto3.client("s3",
+
+from urllib.parse import unquote
+
+def list_disorders_from_prefix(prefix, partition_key="disorder="):
+    s3 = boto3.client(
+        "s3",
         aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
         aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
     )
 
-    disorders = set()
     result = s3.list_objects_v2(Bucket=BUCKET, Prefix=prefix)
+    disorders = set()
 
-    if "Contents" not in result:
-        return list(disorders)
-
-    for obj in result["Contents"]:
+    for obj in result.get("Contents", []):
         key = obj["Key"]
-        if not key.endswith(".json"):
-            continue
-
-        response = s3.get_object(Bucket=BUCKET, Key=key)
-        content = response["Body"].read().decode("utf-8")
-
-        try:
-            for line in content.strip().split("\n"):
-                record = json.loads(line)
-                if "disorder" in record:
-                    disorders.add(record["disorder"].lower())
-        except json.JSONDecodeError:
-            continue
-
+        for part in key.split("/"):
+            if part.startswith(partition_key):
+                val = part.split("=", 1)[1]
+                if "__HIVE_DEFAULT_PARTITION__" not in val:
+                    disorders.add(unquote(val))
     return list(disorders)
+
+
 
 
 def normalize_disorders(disorder_list):
@@ -164,21 +160,25 @@ def load_json_data(disorder_raw_names):
 
     return articles
 
-def load_nii_metadata(disorder_raw_names):
-    s3 = boto3.client("s3",
+import boto3
+import os
+import json
+
+def load_unstr_metadata(disorder_raw_names):
+    s3 = boto3.client(
+        "s3",
         aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
         aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
     )
 
     datasets = []
 
-    for raw in disorder_raw_names:
-        prefix = f"{NII_PREFIX}disorder={raw}/"
+    def load_metadata_from_prefix(prefix):
         result = s3.list_objects_v2(Bucket=BUCKET, Prefix=prefix)
-
         if "Contents" not in result:
-            continue
+            return []
 
+        records = []
         for obj in result["Contents"]:
             key = obj["Key"]
             if not key.endswith(".json"):
@@ -190,11 +190,23 @@ def load_nii_metadata(disorder_raw_names):
             try:
                 for line in content.strip().split("\n"):
                     record = json.loads(line)
-                    datasets.append(record)
+                    records.append(record)
             except json.JSONDecodeError:
                 continue
+        return records
+
+    for raw in disorder_raw_names:
+        nii_prefix = f"{NII_PREFIX}disorder={raw}/"
+        eeg_prefix = f"{EEG_PREFIX}disorder={raw}/"
+
+        nii_records = load_metadata_from_prefix(nii_prefix)
+        eeg_records = load_metadata_from_prefix(eeg_prefix)
+
+        datasets.extend(nii_records)
+        datasets.extend(eeg_records)
 
     return datasets
+
 
 
 # --- Streamlit App ---
@@ -222,10 +234,11 @@ st.markdown("---") # Visual separator
 # Fetch disorders from both folders
 csv_disorders_raw = list_disorders(CSV_PREFIX)
 json_disorders_raw = list_disorders(JSON_PREFIX)
-nii_disorders_raw = list_nii_disorders(NII_PREFIX)
+nii_disorders_raw = list_disorders_from_prefix(NII_PREFIX)
+eeg_disorders_raw = list_disorders_from_prefix(EEG_PREFIX)
 
 # Combine all disorders and normalize
-all_disorders = normalize_disorders(csv_disorders_raw + json_disorders_raw + nii_disorders_raw)
+all_disorders = normalize_disorders(csv_disorders_raw + json_disorders_raw + nii_disorders_raw + eeg_disorders_raw)
 
 selected_disorder = st.selectbox("Select a Disorder", all_disorders)
 
@@ -280,17 +293,12 @@ if selected_disorder:
         st.info("No article data available for this disorder.")
     
     # NIfTI Dataset Metadata Section
-    nii_datasets = load_nii_metadata(raw_names)
+    studies_datasets = load_unstr_metadata(raw_names)
 
-    if nii_datasets:
+    if studies_datasets:
         st.subheader("📦 Dataset Metadata")
-        st.write(f"Found **{len(nii_datasets)} datasets** tagged with *{selected_disorder}*.")
+        st.write(f"Found **{len(studies_datasets)} datasets** tagged with *{selected_disorder}*.")
 
-        with st.container():
-            st.image("https://upload.wikimedia.org/wikipedia/commons/5/58/Head_mri_animation.gif", 
-                    caption="Example MRI Image", use_container_width=True)        
-
-        # Display metadata in a table
         metadata_df = pd.DataFrame([
             {
                 "Dataset ID": ds.get("dataset_id"),
@@ -299,12 +307,26 @@ if selected_disorder:
                 "Modality": ", ".join(ds.get("modalities", [])),
                 "Study Design": ds.get("studyDesign"),
                 "Study Domain": ds.get("studyDomain"),
-                "Date": ds.get("date", "")[:10]  # Just show the YYYY-MM-DD part
+                "Date": ds.get("date", "")[:10]
             }
-            for ds in nii_datasets
+            for ds in studies_datasets
         ])
 
+        # Let user select a dataset row by index
+        dataset_names = ["None selected"] + metadata_df["Name"].tolist()
+
+        selected_name = st.radio("🔍 Select a dataset to view MRI image", dataset_names)
+
+        # Show table always
         st.dataframe(metadata_df, use_container_width=True)
+
+        # Only show image if an actual dataset is selected
+        if selected_name != "None selected":
+            st.image(
+                "https://upload.wikimedia.org/wikipedia/commons/5/58/Head_mri_animation.gif",
+                caption=f"Example MRI Image for: {selected_name}",
+                use_container_width=True
+            )
     else:
         st.info("No NIfTI dataset metadata available for this disorder.")
 
