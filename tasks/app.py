@@ -292,11 +292,11 @@ if selected_disorder:
     else:
         st.info("No article data available for this disorder.")
     
-    # NIfTI Dataset Metadata Section
+    # NIfTI Dataset Section
     studies_datasets = load_unstr_metadata(raw_names)
 
     if studies_datasets:
-        st.subheader("📦 Dataset Metadata")
+        st.subheader("📦 MRI and EEG dataset browsing")
         st.write(f"Found **{len(studies_datasets)} datasets** tagged with *{selected_disorder}*.")
 
         metadata_df = pd.DataFrame([
@@ -328,7 +328,7 @@ if selected_disorder:
                 use_container_width=True
             )
     else:
-        st.info("No NIfTI dataset metadata available for this disorder.")
+        st.info("No dataset available for this disorder.")
 
 
 
